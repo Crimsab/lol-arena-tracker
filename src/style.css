@@ -1,0 +1,128 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+
+  --main-text-color: #f0e6d2;
+  --main-bg-gradient: linear-gradient(to left, #091428, #0a1428);
+}
+
+body {
+  height: 100vh;
+  background: var(--main-bg-gradient);
+  margin: 0;
+}
+
+@font-face {
+  font-family: "BeaufortforLOL";
+  src: url("./fonts/BeaufortforLOL-Regular.ttf");
+}
+
+@font-face {
+  font-family: "BeaufortforLOL Bold";
+  src: url("./fonts/BeaufortforLOL-Bold.ttf");
+}
+
+@font-face {
+  font-family: "BeaufortforLOL Medium";
+  src: url("./fonts/BeaufortforLOL-Medium.ttf");
+}
+
+@font-face {
+  font-family: "Spiegel";
+  src: url("./fonts/Spiegel_TT_Regular.ttf");
+}
+
+.league-button {
+  font-size: 16px;
+  background: #1e2328;
+  color: #cdbe91;
+  box-shadow: inset 0 0 2px #000000;
+  border: solid 2px #785a28;
+}
+
+.league-button:hover {
+  text-shadow: 0 0 5px #ffffff80;
+  box-shadow: 0 0 8px 0 #ffffff50;
+  background: linear-gradient(to bottom, #1e2328, #433d2b);
+  cursor: pointer;
+  transition: 0.1s;
+}
+
+.league-button:active {
+  text-shadow: none;
+  box-shadow: none;
+  color: #cdbe9130;
+}
+
+.league-select {
+  font-family: "Spiegel";
+  font-size: 15px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  padding: 8px 16px;
+  background: #1e2328;
+  color: #cdbe91;
+  box-shadow: inset 0 0 2px #000000;
+  border-image: linear-gradient(to bottom, #c8aa6d, #7a5c29);
+  border-image-slice: 1;
+  border-width: 2px;
+}
+
+.league-select:hover {
+  text-shadow: 0 0 5px #ffffff80;
+  background: linear-gradient(to bottom, #1e2328, #433d2b);
+  cursor: pointer;
+  transition: 0.1s;
+}
+
+.league-select:focus-visible {
+  outline: none;
+}
+
+.league-select > option {
+  font-family: "Spiegel";
+  font-size: 15px;
+  letter-spacing: 1px;
+  background: #1e2328;
+  color: #cdbe91;
+}
+
+.league-select > option.selected {
+  font-weight: bold;
+  color: #0397ab;
+}
+
+.league-input {
+  font-family: "Spiegel";
+  font-size: 15px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  padding: 10px 16px;
+  background: #1e2328;
+  color: #cdbe91;
+  box-shadow: inset 0 0 2px #000000;
+  border-image: linear-gradient(to bottom, #c8aa6d, #7a5c29);
+  border-image-slice: 1;
+  border-width: 2px;
+}
+
+.league-input::-webkit-search-cancel-button {
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.league-input:focus {
+  outline: none;
+  box-shadow: 0 0 8px 0 #ffffff50;
+}

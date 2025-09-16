@@ -1,0 +1,50 @@
+{
+  "name": "lol-arena-tracker",
+  "version": "1.0.0",
+  "main": "dist-electron/main/index.js",
+  "description": "Arena Tracker - Track your Arena God challenge progress in League of Legends",
+  "author": "Crimsab",
+  "homepage": "https://github.com/Crimsab/lol-arena-tracker",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Crimsab/lol-arena-tracker.git"
+  },
+  "private": true,
+  "debug": {
+    "env": {
+      "VITE_DEV_SERVER_URL": "http://127.0.0.1:3344/"
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build && electron-builder",
+    "build:portable": "vue-tsc --noEmit && vite build && electron-builder --win portable",
+    "build:installer": "vue-tsc --noEmit && vite build && electron-builder --win nsis",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "electron": "^29.1.1",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.4.2",
+    "vite": "^5.1.5",
+    "vite-plugin-electron": "^0.28.4",
+    "vite-plugin-electron-renderer": "^0.14.5",
+    "vue": "^3.4.21",
+    "vue-tsc": "^2.0.6"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^6.6.0",
+    "@fortawesome/free-brands-svg-icons": "^6.6.0",
+    "@fortawesome/free-regular-svg-icons": "^6.6.0",
+    "@fortawesome/free-solid-svg-icons": "^6.6.0",
+    "@fortawesome/vue-fontawesome": "^3.0.8",
+    "@types/ws": "^8.5.12",
+    "electron-store": "^10.0.0",
+    "lcu-connector": "^2.1.4",
+    "vite-plugin-node-polyfills": "^0.22.0",
+    "ws": "^8.18.0",
+    "xlsx": "^0.18.5"
+  }
+}

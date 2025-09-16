@@ -1,0 +1,57 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0, v1.1.0, etc.
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install dependencies
+      run: npm install
+      
+    - name: Build application
+      run: npm run build
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+    - name: List build artifacts
+      run: |
+        echo "Build artifacts:"
+        Get-ChildItem -Path "release" -Recurse
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          release/*/Arena Tracker-Windows-*-Setup.exe
+          release/*/Arena Tracker-Windows-*-Portable.exe
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+        body: |
+          ## Arena Tracker ${{ github.ref_name }}
+          
+          ### Downloads
+          - **Installer**: Arena Tracker-Windows-*-Setup.exe (Recommended for most users)
+          - **Portable**: Arena Tracker-Windows-*-Portable.exe (No installation required)
+          
+          ### Installation
+          1. **Installer**: Download and run the Setup.exe file
+          2. **Portable**: Download and extract the Portable.exe file anywhere
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
