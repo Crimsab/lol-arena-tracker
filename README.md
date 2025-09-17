@@ -2,8 +2,6 @@
 
 <div align="center">
 
-![Arena Tracker Banner](screenshot.jpg)
-
 [![GitHub release](https://img.shields.io/github/release/Crimsab/lol-arena-tracker.svg)](https://github.com/Crimsab/lol-arena-tracker/releases/latest)
 [![GitHub downloads](https://img.shields.io/github/downloads/Crimsab/lol-arena-tracker/total.svg)](https://github.com/Crimsab/lol-arena-tracker/releases)
 [![GitHub stars](https://img.shields.io/github/stars/Crimsab/lol-arena-tracker.svg)](https://github.com/Crimsab/lol-arena-tracker/stargazers)
