@@ -1,13 +1,13 @@
 import { app, BrowserWindow, shell, ipcMain, dialog } from "electron"
-import { createRequire } from "node:module"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import os from "node:os"
 import fs from "node:fs"
-import LCUConnector from "lcu-connector"
+import http from "node:http"
+import https from "node:https"
 import { WebSocket } from "ws"
 import Store from "electron-store"
-import * as XLSX from "xlsx"
+import { autoUpdater } from "electron-updater"
 import {
   ChampSelectSessionEvent,
   LCUEventMessage,
@@ -22,7 +22,21 @@ interface LCUCredentials {
   protocol: string
 }
 
-const require = createRequire(import.meta.url)
+const allowedExternalHosts = new Set([
+  "op.gg",
+  "www.op.gg",
+  "u.gg",
+  "www.u.gg",
+  "www.metasrc.com",
+  "lolalytics.com",
+  "mobalytics.gg",
+  "github.com",
+])
+
+const storeKeys = new Set(["settings", "custom-league-path"])
+const exportFormats = new Set(["txt", "json", "csv"])
+const lcuPathPattern = /^\/lol-[a-z0-9-]+\/v\d+\//
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 process.env.APP_ROOT = path.join(__dirname, "../..")
@@ -58,15 +72,9 @@ async function createWindow() {
     width: VITE_DEV_SERVER_URL ? 1440 + 760 : 1440,
     webPreferences: {
       preload,
-      nodeIntegration: true,
-      allowRunningInsecureContent: true,
-      webSecurity: false,
-      // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production
-      // nodeIntegration: true,
-
-      // Consider using contextBridge.exposeInMainWorld
-      // Read more on https://www.electronjs.org/docs/latest/tutorial/context-isolation
-      // contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: true,
     },
   })
 
@@ -80,15 +88,31 @@ async function createWindow() {
 
   // Make all links open with the browser, not with the application
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https:")) shell.openExternal(url)
+    openAllowedExternalUrl(url)
     return { action: "deny" }
   })
-  // win.webContents.on('will-navigate', (event, url) => { }) #344
+  win.webContents.on("will-navigate", (event, url) => {
+    if (url !== win.webContents.getURL()) {
+      event.preventDefault()
+      openAllowedExternalUrl(url)
+    }
+  })
 
   return win
 }
 
-function sendCredentials(win: BrowserWindow, credentials: LCUCredentials) {
+function openAllowedExternalUrl(url: string) {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol === "https:" && allowedExternalHosts.has(parsed.hostname)) {
+      shell.openExternal(parsed.toString())
+    }
+  } catch (error) {
+    console.warn("Blocked invalid external URL:", url, error)
+  }
+}
+
+function sendCredentials(win: BrowserWindow, credentials: LCUCredentials | null) {
   console.log(`Main: sendCredentials called with credentials:`, credentials ? {
     address: credentials.address,
     port: credentials.port,
@@ -113,7 +137,12 @@ function sendCredentials(win: BrowserWindow, credentials: LCUCredentials) {
     setTimeout(() => startConnectionMonitoring(win), 1000)
   }
 
-  win.webContents.send("credentials", credentials)
+  win.webContents.send("credentials", credentials ? {
+    address: credentials.address,
+    port: credentials.port,
+    protocol: credentials.protocol,
+    username: credentials.username,
+  } : null)
 }
 
 function parseLockfile(lockfilePath: string): LCUCredentials | null {
@@ -124,7 +153,7 @@ function parseLockfile(lockfilePath: string): LCUCredentials | null {
     }
 
     const content = fs.readFileSync(lockfilePath, 'utf8').trim()
-    console.log(`Found lockfile content: ${content}`)
+    console.log(`Found League lockfile at: ${lockfilePath}`)
 
     const parts = content.split(':')
     if (parts.length !== 5) {
@@ -132,19 +161,30 @@ function parseLockfile(lockfilePath: string): LCUCredentials | null {
       return null
     }
 
-    const [processName, pid, port, password, protocol] = parts
+    const [processName, _pid, port, password, protocol] = parts
 
     if (processName !== 'LeagueClient') {
       console.error(`Invalid process name in lockfile: ${processName}`)
       return null
     }
 
+    const parsedPort = parseInt(port, 10)
+    if (!Number.isInteger(parsedPort) || parsedPort <= 0) {
+      console.error(`Invalid LCU port in lockfile: ${port}`)
+      return null
+    }
+
+    if (protocol !== "http" && protocol !== "https") {
+      console.error(`Invalid LCU protocol in lockfile: ${protocol}`)
+      return null
+    }
+
     const credentials: LCUCredentials = {
       address: '127.0.0.1',
-      port: parseInt(port, 10),
+      port: parsedPort,
       username: 'riot',
       password: password,
-      protocol: protocol as 'http' | 'https'
+      protocol
     }
 
     console.log(`Parsed credentials from lockfile:`, {
@@ -180,8 +220,8 @@ async function tryManualLCUConnection(win: BrowserWindow): Promise<boolean> {
 
   // Add custom path if provided
   const customPath = await store.get('custom-league-path')
-  if (customPath) {
-    possiblePaths.unshift(`${customPath}\\lockfile`)
+  if (typeof customPath === "string" && customPath.trim()) {
+    possiblePaths.unshift(lockfilePathFromLeaguePath(customPath))
   }
 
   for (const lockfilePath of possiblePaths) {
@@ -232,7 +272,14 @@ async function connectWebsocket(
   })
 
   ws.on("message", (e) => {
-    const event: LCUEventMessage = parseEventMessage(e.toString())
+    let event: LCUEventMessage
+    try {
+      event = parseEventMessage(e.toString())
+    } catch (error) {
+      console.warn("Could not parse LCU websocket message:", error)
+      return
+    }
+
     switch (event.type) {
       case LCUEvents.EndOfGameStats:
         win.webContents.send("end-of-game")
@@ -268,14 +315,12 @@ async function connectWebsocket(
 
   ws.on("close", () => {
     console.log("WebSocket connection closed")
-    isConnected = false
-    // Send null credentials to indicate disconnection
-    win.webContents.send("credentials", null)
+    sendCredentials(win, null)
   })
 
   ws.on("error", (error) => {
     console.error("WebSocket error:", error)
-    isConnected = false
+    sendCredentials(win, null)
   })
 }
 
@@ -289,33 +334,7 @@ function connectToLcu(win: BrowserWindow) {
       return
     }
 
-    console.log("Manual connection failed, falling back to lcu-connector library...")
-
-    // Fall back to lcu-connector library
-    const connector = new LCUConnector()
-    let wsTimeout: NodeJS.Timeout
-
-    console.log("LCU Connector: Starting connection attempt...")
-
-    connector.on("connect", (credentials) => {
-      console.log("LCU Connector: Connected! Credentials received:", {
-        address: credentials.address,
-        port: credentials.port,
-        protocol: credentials.protocol
-      })
-      sendCredentials(win, credentials)
-      // LCU refuses websocket connections too early
-      wsTimeout = setTimeout(() => connectWebsocket(win, credentials), 10000)
-    })
-
-    connector.on("disconnect", () => {
-      console.log("LCU Connector: Disconnected!")
-      clearTimeout(wsTimeout)
-      return sendCredentials(win, null)
-    })
-
-    console.log("LCU Connector: Calling connector.start()")
-    connector.start()
+    console.log("League client lockfile was not found. Waiting for manual path or next monitor tick.")
   })
 }
 
@@ -327,8 +346,16 @@ const store = new Store({
 
 // Track connection status
 let isConnected = false
-let connectionCheckInterval: NodeJS.Timeout
+let connectionCheckInterval: NodeJS.Timeout | null = null
 let lastCredentials: LCUCredentials | null = null
+
+function lockfilePathFromLeaguePath(leaguePath: string) {
+  const trimmed = leaguePath.trim()
+  if (!trimmed) return ""
+  return trimmed.toLowerCase().endsWith("lockfile")
+    ? trimmed
+    : path.win32.join(trimmed, "lockfile")
+}
 
 // Export functions
 function generateTxtExport(data: any): string {
@@ -359,12 +386,78 @@ function generateCsvExport(data: any): string {
   data.champions.forEach((champ: any) => {
     const roles = champ.roles.join(';')
     const completed = champ.completed ? 'Yes' : 'No'
-    content += `${champ.id},"${champ.name}","${champ.alias}","${roles}","${completed}"\n`
+    content += [
+      champ.id,
+      champ.name,
+      champ.alias,
+      roles,
+      completed,
+    ].map(csvCell).join(",") + "\n"
   })
   return content
 }
 
+function csvCell(value: unknown) {
+  const text = String(value ?? "")
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+async function makeLCURequest(path: string) {
+  if (!lastCredentials) {
+    throw new Error("League client is not connected")
+  }
+
+  if (!lcuPathPattern.test(path)) {
+    throw new Error(`LCU path is not allowed: ${path}`)
+  }
+
+  const { address, port, username, password, protocol } = lastCredentials
+  const url = new URL(`${protocol}://${address}:${port}${path}`)
+  const headers = {
+    accept: "application/json",
+    Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString(
+      "base64"
+    )}`,
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = (protocol === "https" ? https : http).request(
+      url,
+      {
+        headers,
+        rejectUnauthorized: false,
+      },
+      (response) => {
+        let body = ""
+        response.setEncoding("utf8")
+        response.on("data", (chunk) => {
+          body += chunk
+        })
+        response.on("end", () => {
+          if (!response.statusCode || response.statusCode >= 400) {
+            reject(new Error(`LCU request failed with ${response.statusCode}: ${path}`))
+            return
+          }
+
+          try {
+            resolve(JSON.parse(body))
+          } catch (error) {
+            reject(error)
+          }
+        })
+      }
+    )
+
+    request.on("error", reject)
+    request.end()
+  })
+}
+
 function startConnectionMonitoring(win: BrowserWindow) {
+  if (connectionCheckInterval) {
+    return
+  }
+
   // Check for connection every 5 seconds
   connectionCheckInterval = setInterval(async () => {
     if (!isConnected) {
@@ -372,7 +465,7 @@ function startConnectionMonitoring(win: BrowserWindow) {
       const success = await tryManualLCUConnection(win)
       if (success) {
         isConnected = true
-        clearInterval(connectionCheckInterval)
+        stopConnectionMonitoring()
       }
     }
   }, 5000)
@@ -381,12 +474,64 @@ function startConnectionMonitoring(win: BrowserWindow) {
 function stopConnectionMonitoring() {
   if (connectionCheckInterval) {
     clearInterval(connectionCheckInterval)
+    connectionCheckInterval = null
   }
+}
+
+function setupAutoUpdater(win: BrowserWindow) {
+  if (!app.isPackaged) return
+
+  autoUpdater.autoDownload = false
+  autoUpdater.allowPrerelease = false
+
+  autoUpdater.on("update-available", async (info) => {
+    const { response } = await dialog.showMessageBox(win, {
+      type: "info",
+      buttons: ["Download", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      message: `Arena Tracker ${info.version} is available`,
+      detail: "Download the update now and install it when it is ready.",
+    })
+
+    if (response === 0) {
+      autoUpdater.downloadUpdate()
+    }
+  })
+
+  autoUpdater.on("update-downloaded", async () => {
+    const { response } = await dialog.showMessageBox(win, {
+      type: "info",
+      buttons: ["Restart", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      message: "Arena Tracker update downloaded",
+      detail: "Restart now to install the update.",
+    })
+
+    if (response === 0) {
+      autoUpdater.quitAndInstall()
+    }
+  })
+
+  autoUpdater.on("error", (error) => {
+    console.warn("Auto-update check failed:", error)
+  })
+
+  autoUpdater.checkForUpdates().catch((error) => {
+    console.warn("Auto-update check failed:", error)
+  })
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch((error) => {
+      console.warn("Auto-update check failed:", error)
+    })
+  }, 4 * 60 * 60 * 1000)
 }
 
 async function main() {
   await app.whenReady()
   const win = await createWindow()
+  setupAutoUpdater(win)
 
   // Start monitoring for League client connection
   startConnectionMonitoring(win)
@@ -396,7 +541,7 @@ async function main() {
 
   ipcMain.on("test-custom-league-path", async (_, path: string) => {
     console.log("Testing custom League path:", path)
-    const lockfilePath = `${path}\\lockfile`
+    const lockfilePath = lockfilePathFromLeaguePath(path)
     const credentials = parseLockfile(lockfilePath)
     if (credentials) {
       console.log("Custom path test successful!")
@@ -408,11 +553,18 @@ async function main() {
     }
   })
 
+  ipcMain.handle("lcu-request", async (_, path: string) => {
+    return makeLCURequest(path)
+  })
+
   ipcMain.on("export-data", async (_, { format, data }) => {
     console.log("Exporting data in", format, "format")
-    console.log("Data received:", JSON.stringify(data, null, 2))
     
     try {
+      if (!exportFormats.has(format)) {
+        throw new Error(`Unsupported export format: ${format}`)
+      }
+
       let content: string | Buffer = ''
       let filename = `arena-tracker-export-${new Date().toISOString().split('T')[0]}`
       let fileExtension = ''
@@ -430,50 +582,6 @@ async function main() {
           content = generateCsvExport(data)
           fileExtension = '.csv'
           break
-        case 'excel':
-          // Generate Excel file
-          const workbook = XLSX.utils.book_new()
-          
-          // Create summary sheet
-          const summaryData = [
-            ['Arena Tracker Export'],
-            [''],
-            ['Challenge Name', data.challengeName],
-            ['Challenge Description', data.challengeDescription],
-            ['Total Champions', data.totalChampions],
-            ['Completed Champions', data.completedChampions],
-            ['Completion Percentage', `${data.completionPercentage}%`],
-            ['Export Date', data.exportDate],
-            [''],
-            ['Champion Details:']
-          ]
-          
-          const summarySheet = XLSX.utils.aoa_to_sheet(summaryData)
-          XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary')
-          
-          // Create champions sheet
-          const championsData = [
-            ['ID', 'Name', 'Alias', 'Roles', 'Completed']
-          ]
-          
-          data.champions.forEach(champ => {
-            championsData.push([
-              champ.id,
-              champ.name,
-              champ.alias,
-              champ.roles.join(', '),
-              champ.completed ? 'Yes' : 'No'
-            ])
-          })
-          
-          const championsSheet = XLSX.utils.aoa_to_sheet(championsData)
-          XLSX.utils.book_append_sheet(workbook, championsSheet, 'Champions')
-          
-          // Generate Excel buffer
-          const excelBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
-          content = excelBuffer
-          fileExtension = '.xlsx'
-          break
       }
       
       console.log("Generated content length:", content.length)
@@ -483,7 +591,6 @@ async function main() {
         title: 'Export Arena Tracker Data',
         defaultPath: path.join(os.homedir(), 'Downloads', filename + fileExtension),
         filters: [
-          { name: 'Excel Files', extensions: ['xlsx'] },
           { name: 'Text Files', extensions: ['txt'] },
           { name: 'JSON Files', extensions: ['json'] },
           { name: 'CSV Files', extensions: ['csv'] },
@@ -497,12 +604,7 @@ async function main() {
       if (!result.canceled && result.filePath) {
         console.log("Saving to:", result.filePath)
         
-        // Write file with appropriate encoding based on format
-        if (format === 'excel') {
-          fs.writeFileSync(result.filePath, content as Buffer)
-        } else {
-          fs.writeFileSync(result.filePath, content as string, 'utf8')
-        }
+        fs.writeFileSync(result.filePath, content as string, 'utf8')
         
         console.log("Export successful:", result.filePath)
         win.webContents.send("export-result", { success: true, message: `Data exported to ${result.filePath}` })
@@ -512,42 +614,28 @@ async function main() {
       }
     } catch (error) {
       console.error("Export failed:", error)
-      win.webContents.send("export-result", { success: false, message: `Export failed: ${error.message}` })
+      const message = error instanceof Error ? error.message : String(error)
+      win.webContents.send("export-result", { success: false, message: `Export failed: ${message}` })
     }
   })
 
   ipcMain.on("store-set", (_, key, value) => {
+    if (!storeKeys.has(key) || typeof value !== "string") return
     store.set(key, value)
   })
 
   ipcMain.handle("store-get", (_e, arg: string) => {
+    if (!storeKeys.has(arg)) return undefined
     return store.get(arg)
   })
-
-  app.on(
-    "certificate-error",
-    (event, _webContents, _url, _error, certificate, callback) => {
-      if (
-        certificate.fingerprint ===
-        "sha256/TQ1pFVrt3Msu+IVgubjrrixp75XCuDFovDbcTcqTJjw="
-      ) {
-        event.preventDefault()
-        callback(true)
-      } else {
-        callback(false)
-      }
-    }
-  )
 
   app.on("window-all-closed", () => {
     app.quit()
   })
 
   ipcMain.on("process:close", () => {
-    process.exit(0)
+    app.quit()
   })
 }
-
-app.commandLine.appendSwitch("ignore-certificate-errors")
 
 main()

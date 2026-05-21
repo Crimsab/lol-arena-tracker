@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from "vue"
+import { onMounted, ref } from "vue"
 
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome"
 import { faGear } from "@fortawesome/free-solid-svg-icons"
 
 import { LCUCredentials, RawChallenge } from "./types/lcu"
-import { AramStats, Challenge, Champion, Summoner } from "./types/lol"
+import { Challenge, Champion, Summoner } from "./types/lol"
 import { StoredSettings, ExportData } from "./types/app"
 import {
   challengeFromCompletedIds as challengeFromRaw,
   makeLCURequest,
-  parseMerakiFile,
 } from "./helpers/utils"
-import { challengeWithCompletion } from "./constants"
+import type { BuildSource } from "./helpers/buildLinks"
+import { normalizeChampionList } from "./helpers/champions"
+import { arenaChallengeIds } from "./constants"
 import ChallengeSection from "./components/ChallengeSection.vue"
 import Settings from "./components/Settings.vue"
 
@@ -21,35 +22,15 @@ const credentials = ref<LCUCredentials | null>(null)
 const allChampions = ref<Champion[] | null>(null)
 const summoner = ref<Summoner | null>(null)
 const challenges = ref<Challenge[]>([])
-const stats = ref<AramStats | null>(null)
 
 // Prevent multiple simultaneous fetches
 let isFetching = false
 let lastFetchTime = 0
 const FETCH_DEBOUNCE_MS = 1000 // 1 second debounce
 
-onMounted(async () => {
-  window.ipcRenderer.send("app-ready")
-  const storedAramStats = await window.ipcRenderer.invoke(
-    "store-get",
-    "aram-stats"
-  )
-  if (storedAramStats) {
-    stats.value = JSON.parse(storedAramStats)
-  } else {
-    await fetchAramStats()
-  }
+onMounted(() => {
+  window.arenaAPI.appReady()
 })
-
-const fetchAramStats = async () => {
-  const res = await fetch(
-    `https://cdn.merakianalytics.com/riot/lol/resources/latest/en-US/champions.json`,
-    { cache: "no-cache" }
-  )
-  const parsed = parseMerakiFile(await res.json())
-  window.ipcRenderer.send("store-set", "aram-stats", JSON.stringify(parsed))
-  stats.value = parsed
-}
 
 const fetchLCU = async () => {
   if (credentials.value === null) return
@@ -74,7 +55,6 @@ const fetchLCU = async () => {
 
   try {
     const summonerRes = await makeLCURequest<Summoner>(
-      credentials.value,
       "/lol-summoner/v1/current-summoner"
     )
 
@@ -82,97 +62,31 @@ const fetchLCU = async () => {
     console.log("fetchLCU: Got summoner:", summonerRes.summonerLevel)
 
     const champsRes = await makeLCURequest<Champion[]>(
-      credentials.value,
       `/lol-champions/v1/inventories/${summonerRes.summonerId}/champions-minimal`
     )
 
     console.log("fetchLCU: Got", champsRes.length, "champions from API")
 
-    // Debug: Log some champion names to see duplicates
-    const championNames = champsRes.map(c => c.name).slice(0, 10)
-    console.log("fetchLCU: Sample champion names:", championNames)
-
-    // Remove the first champ ("None" champion)
-    champsRes.shift()
-
-    // Find and log duplicates before deduplication
-    const nameCounts = champsRes.reduce((acc, champ) => {
-      acc[champ.name] = (acc[champ.name] || 0) + 1
-      return acc
-    }, {} as Record<string, number>)
-
-    const duplicates = Object.entries(nameCounts).filter(([name, count]) => count > 1)
-    if (duplicates.length > 0) {
-      console.log("fetchLCU: Found exact name duplicates:", duplicates)
-    }
-
-    // Find champions that start with the same name (like "Amumu" and "Amumu Bot dell'Apocalisse")
-    const baseNameGroups = champsRes.reduce((acc, champ) => {
-      // Extract base name (first word before any space or special characters)
-      const baseName = champ.name.split(/[\s\-_]/)[0]
-      if (!acc[baseName]) {
-        acc[baseName] = []
-      }
-      acc[baseName].push(champ)
-      return acc
-    }, {} as Record<string, Champion[]>)
-
-    const nameVariants = Object.entries(baseNameGroups).filter(([baseName, champs]) => champs.length > 1)
-    if (nameVariants.length > 0) {
-      console.log("fetchLCU: Found champions with same base name:", nameVariants.map(([base, champs]) => [base, champs.map(c => c.name)]))
-    }
-
-    // Deduplicate champions by base name (keep the shortest name for each base name)
-    const uniqueChamps = champsRes.filter((champ, index, array) => {
-      const baseName = champ.name.split(/[\s\-_]/)[0]
-      const sameBaseChamps = array.filter(c => c.name.split(/[\s\-_]/)[0] === baseName)
-      
-      // If there are multiple champions with same base name, keep the one with shortest name
-      if (sameBaseChamps.length > 1) {
-        const shortestName = sameBaseChamps.reduce((shortest, current) => 
-          current.name.length < shortest.name.length ? current : shortest
-        )
-        return champ.name === shortestName.name
-      }
-      
-      // If only one champion with this base name, keep it
-      return true
-    })
-
-    console.log("fetchLCU: After deduplication:", uniqueChamps.length, "unique champions")
-
-    // Verify deduplication worked
-    const finalBaseNames = uniqueChamps.map(champ => champ.name.split(/[\s\-_]/)[0])
-    const finalBaseNameCounts = finalBaseNames.reduce((acc, baseName) => {
-      acc[baseName] = (acc[baseName] || 0) + 1
-      return acc
-    }, {} as Record<string, number>)
-
-    const remainingDuplicates = Object.entries(finalBaseNameCounts).filter(([baseName, count]) => count > 1)
-    if (remainingDuplicates.length > 0) {
-      console.error("fetchLCU: Still have base name duplicates after deduplication:", remainingDuplicates)
-    } else {
-      console.log("fetchLCU: ✅ Deduplication successful - no base name duplicates remaining")
-    }
-
-    // Log some examples of what was kept vs removed
-    const keptChampions = uniqueChamps.map(c => c.name).slice(0, 10)
-    console.log("fetchLCU: Sample kept champions:", keptChampions)
-
-    const allChamps = uniqueChamps.sort((a, b) => a.name.localeCompare(b.name))
+    const allChamps = normalizeChampionList(champsRes)
+    console.log("fetchLCU: Normalized to", allChamps.length, "champions")
     allChampions.value = allChamps
 
     const allChallenges: Record<string, RawChallenge> = await makeLCURequest(
-      credentials.value,
       "/lol-challenges/v1/challenges/local-player"
     )
 
     console.log("fetchLCU: Got challenges:", Object.keys(allChallenges).length)
 
-    challenges.value = challengeWithCompletion.map((c) => {
-      const challenge = challengeFromRaw(allChallenges[c.id], allChamps, c.gameMode)
+    challenges.value = arenaChallengeIds.flatMap((c) => {
+      const rawChallenge = allChallenges[c.id]
+      if (!rawChallenge) {
+        console.error(`fetchLCU: Challenge ${c.id} was not returned by LCU`)
+        return []
+      }
+
+      const challenge = challengeFromRaw(rawChallenge, allChamps)
       console.log(`fetchLCU: Processed challenge ${c.id}:`, challenge.totalDone, "done out of", allChamps.length)
-      return challenge
+      return [challenge]
     })
 
     console.log("fetchLCU: Fetch completed successfully")
@@ -190,7 +104,7 @@ const hideCompletedChampions = ref(false)
 const hideMissingChampions = ref(false)
 const viewMode = ref<'grid' | 'small-grid' | 'list'>('grid')
 const customLeaguePath = ref('')
-const favoriteBuildSource = ref<'opgg' | 'ugg' | 'metasrc' | 'lolalytics' | 'mobalytics'>('opgg')
+const favoriteBuildSource = ref<BuildSource>('opgg')
 
 const updateSettings = (settings: StoredSettings) => {
   isColoredWhenDone.value = settings.isColoredWhenDone
@@ -200,31 +114,22 @@ const updateSettings = (settings: StoredSettings) => {
   viewMode.value = settings.viewMode
   customLeaguePath.value = settings.customLeaguePath
   favoriteBuildSource.value = settings.favoriteBuildSource
-  window.ipcRenderer.send("store-set", "settings", JSON.stringify(settings))
+  window.arenaAPI.setStore("settings", JSON.stringify(settings))
 }
 
 
-window.ipcRenderer.on("end-of-game", () => {
+window.arenaAPI.onEndOfGame(() => {
   console.log("Event: end-of-game - refetching data")
   fetchLCU()
 })
 
 
-window.ipcRenderer.on(
-  "credentials",
-  async (_event, newCredentials: LCUCredentials) => {
+window.arenaAPI.onCredentials(
+  async (newCredentials: LCUCredentials | null) => {
     console.log("Event: credentials - received", newCredentials ? "valid credentials" : "null credentials")
     credentials.value = newCredentials
     await fetchLCU()
-    const storedSelectedChallengeIdx = await window.ipcRenderer.invoke(
-      "store-get",
-      "selected-challenge-index"
-    )
-
-    const storedSettings = await window.ipcRenderer.invoke(
-      "store-get",
-      "settings"
-    )
+    const storedSettings = await window.arenaAPI.getStore("settings")
 
     if (storedSettings) {
       const settings: StoredSettings = JSON.parse(storedSettings)
@@ -242,17 +147,17 @@ window.ipcRenderer.on(
 )
 
 
-window.ipcRenderer.on("refetch", () => {
+window.arenaAPI.onRefetch(() => {
   console.log("Event: refetch - triggered")
   fetchLCU()
 })
 
-window.ipcRenderer.on("custom-path-test-result", (_, result: { success: boolean; message: string }) => {
+window.arenaAPI.onCustomPathTestResult((result: { success: boolean; message: string }) => {
   console.log("Custom path test result:", result)
   // You could show a toast notification here if desired
 })
 
-window.ipcRenderer.on("export-result", (_, result: { success: boolean; message: string }) => {
+window.arenaAPI.onExportResult((result: { success: boolean; message: string }) => {
   console.log("Export result:", result)
   if (result.success) {
     alert(`✅ Export successful!\n\n${result.message}`)
@@ -270,10 +175,10 @@ const onClickSettings = () => {
 const testCustomLeaguePath = (path: string) => {
   console.log("Testing custom League path:", path)
   // Send custom path to main process for testing
-  window.ipcRenderer.send("test-custom-league-path", path)
+  window.arenaAPI.testCustomLeaguePath(path)
 }
 
-const exportData = (format: 'txt' | 'json' | 'csv' | 'excel') => {
+const exportData = (format: 'txt' | 'json' | 'csv') => {
   if (!challenges.value[0] || !allChampions.value) {
     console.log("No data to export")
     return
@@ -302,7 +207,7 @@ const exportData = (format: 'txt' | 'json' | 'csv' | 'excel') => {
   console.log("Clean export data:", cleanExportData)
   
   try {
-    window.ipcRenderer.send("export-data", { format, data: cleanExportData })
+    window.arenaAPI.exportData({ format, data: cleanExportData })
   } catch (error) {
     console.error("Failed to send export data:", error)
     const errorMessage = error instanceof Error ? error.message : String(error)
@@ -325,14 +230,12 @@ const exportData = (format: 'txt' | 'json' | 'csv' | 'excel') => {
       <ChallengeSection
         v-if="challenges[0]"
         :challenge="challenges[0]"
-        :all-champions="allChampions"
         :isColoredWhenDone="isColoredWhenDone"
         :showChampionNames="showChampionNames"
         :hideCompletedChampions="hideCompletedChampions"
         :hideMissingChampions="hideMissingChampions"
         :viewMode="viewMode"
         :favoriteBuildSource="favoriteBuildSource"
-        :stats="stats"
       />
     </div>
     <div v-else>Waiting for a League client...</div>

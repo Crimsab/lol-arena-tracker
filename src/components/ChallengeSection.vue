@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
 import {
-  AramStats,
   Challenge,
-  Champion,
   ChampionRole,
   ChampionRoles,
 } from "../types/lol"
-import AramStatBox from "./AramStatBox.vue"
+import { BuildSource, championBuildLink } from "../helpers/buildLinks"
+import { filterAndRankChampions } from "../helpers/championSearch"
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome"
 import {
   faUserNinja,
@@ -35,46 +34,14 @@ const typeIcons: Record<ChampionRole, IconDefinition> = {
 
 const props = defineProps<{
   challenge: Challenge
-  allChampions: Champion[]
   isColoredWhenDone: boolean
   showChampionNames: boolean
   hideCompletedChampions: boolean
   hideMissingChampions: boolean
   viewMode: 'grid' | 'small-grid' | 'list'
-  favoriteBuildSource: 'opgg' | 'ugg' | 'metasrc' | 'lolalytics' | 'mobalytics'
-  stats: AramStats | null
+  favoriteBuildSource: BuildSource
 }>()
 
-const championBuildLink = (champ: Champion) => {
-  const alias = champ.alias.toLowerCase()
-  
-  if (props.challenge.mode === "Arena") {
-    switch (props.favoriteBuildSource) {
-      case "opgg":
-        return `https://www.op.gg/modes/arena/${alias}/build?region=global`
-      case "ugg":
-        return `https://u.gg/lol/champions/arena/${alias}-arena-build`
-      case "metasrc":
-        return `https://www.metasrc.com/lol/arena/build/${alias}`
-      case "lolalytics":
-        return `https://lolalytics.com/lol/${alias}/arena/build/`
-      case "mobalytics":
-        return `https://mobalytics.gg/lol/champions/${alias}/arena-builds`
-    }
-  }
-  
-  // Fallback for other game modes
-  switch (props.challenge.mode) {
-    case "Aram":
-      return `https://aram.zone/champion/${alias}`
-    case "Rift":
-      return `https://u.gg/lol/champions/${alias}/build`
-    default:
-      return `https://www.op.gg/modes/arena/${alias}/build?region=global`
-  }
-}
-
-const showAramStats = ref(false)
 const filter = ref<Filter>("All")
 const selectedTypes = ref<Set<ChampionRole>>(new Set())
 const search = ref<string>("")
@@ -122,9 +89,7 @@ const championsList = computed(() => {
   }
 
   if (search.value) {
-    return list.filter((c) =>
-      c.name.toLocaleLowerCase().includes(search.value.toLowerCase())
-    )
+    return filterAndRankChampions(list, search.value)
   }
 
   return list
@@ -158,10 +123,6 @@ const filterOptions = computed(() => {
     <div class="description-container">
       <p>{{ challenge.description }}</p>
 
-      <div v-if="challenge.mode === 'Aram'" class="stats-checkbox">
-        <input type="checkbox" id="show-stats" v-model="showAramStats" />
-        <label for="show-stats">Show ARAM balance changes</label>
-      </div>
     </div>
 
     <div class="type-filters-container">
@@ -188,7 +149,7 @@ const filterOptions = computed(() => {
         'list-item': viewMode === 'list',
         'small-grid-item': viewMode === 'small-grid'
       }">
-        <a :href="championBuildLink(champ)" target="_blank">
+        <a :href="championBuildLink(champ, favoriteBuildSource)" target="_blank">
           <img
             :class="{ greyed: isColoredWhenDone ? champ.done : !champ.done }"
             :src="`https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/${champ.id}.png`"
@@ -198,15 +159,6 @@ const filterOptions = computed(() => {
         <div v-if="champ.done" class="check-mark">
           <FontAwesomeIcon :icon="faCheck" />
         </div>
-        <AramStatBox
-          v-if="
-            challenge.mode === 'Aram' &&
-            stats &&
-            showAramStats &&
-            stats[champ.alias]
-          "
-          :stats="stats[champ.alias]"
-        />
         <p class="champion-name" 
            v-if="showChampionNames || viewMode === 'list'" 
            :class="{ 'show': showChampionNames && viewMode === 'small-grid' }">
@@ -232,22 +184,6 @@ const filterOptions = computed(() => {
 .filters {
   display: flex;
   align-items: center;
-}
-
-.stats-checkbox {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-.stats-checkbox input {
-  height: 16px;
-  width: 16px;
-  accent-color: #0ac8b9;
-  margin-right: 8px;
-  cursor: pointer;
-}
-.stats-checkbox label {
-  cursor: pointer;
 }
 
 select,

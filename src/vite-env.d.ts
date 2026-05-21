@@ -7,6 +7,25 @@ declare module '*.vue' {
 }
 
 interface Window {
-  // expose in the `electron/preload/index.ts`
-  ipcRenderer: import('electron').IpcRenderer
+  arenaAPI: {
+    appReady: () => void
+    connectToLCU: () => void
+    testCustomLeaguePath: (path: string) => void
+    exportData: (payload: unknown) => void
+    setStore: (key: string, value: string) => void
+    getStore: (key: string) => Promise<string | undefined>
+    lcuRequest: <T>(path: string) => Promise<T>
+    close: () => void
+    onCredentials: (
+      callback: (payload: import("./types/lcu").LCUCredentials | null) => void
+    ) => () => void
+    onEndOfGame: (callback: () => void) => () => void
+    onRefetch: (callback: () => void) => () => void
+    onCustomPathTestResult: (
+      callback: (payload: { success: boolean; message: string }) => void
+    ) => () => void
+    onExportResult: (
+      callback: (payload: { success: boolean; message: string }) => void
+    ) => () => void
+  }
 }

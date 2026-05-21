@@ -1,29 +1,47 @@
-import { ipcRenderer, contextBridge } from "electron"
+import { contextBridge, ipcRenderer } from "electron"
 
-// --------- Expose some API to the Renderer process ---------
-contextBridge.exposeInMainWorld("ipcRenderer", {
-  on(...args: Parameters<typeof ipcRenderer.on>) {
-    const [channel, listener] = args
-    return ipcRenderer.on(channel, (event, ...args) => listener(event, ...args))
-  },
-  off(...args: Parameters<typeof ipcRenderer.off>) {
-    const [channel, ...omit] = args
-    return ipcRenderer.off(channel, ...omit)
-  },
-  send(...args: Parameters<typeof ipcRenderer.send>) {
-    const [channel, ...omit] = args
-    return ipcRenderer.send(channel, ...omit)
-  },
-  invoke(...args: Parameters<typeof ipcRenderer.invoke>) {
-    const [channel, ...omit] = args
-    return ipcRenderer.invoke(channel, ...omit)
-  },
+const listenerChannels = [
+  "credentials",
+  "end-of-game",
+  "refetch",
+  "custom-path-test-result",
+  "export-result",
+] as const
 
-  // You can expose other APTs you need here.
-  // ...
+type ListenerChannel = (typeof listenerChannels)[number]
+
+function onChannel<T>(channel: ListenerChannel, callback: (payload: T) => void) {
+  const listener = (_event: Electron.IpcRendererEvent, payload: T) => {
+    callback(payload)
+  }
+
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.off(channel, listener)
+}
+
+contextBridge.exposeInMainWorld("arenaAPI", {
+  appReady: () => ipcRenderer.send("app-ready"),
+  connectToLCU: () => ipcRenderer.send("connect-to-lcu"),
+  testCustomLeaguePath: (path: string) =>
+    ipcRenderer.send("test-custom-league-path", path),
+  exportData: (payload: unknown) => ipcRenderer.send("export-data", payload),
+  setStore: (key: string, value: string) =>
+    ipcRenderer.send("store-set", key, value),
+  getStore: (key: string) => ipcRenderer.invoke("store-get", key),
+  lcuRequest: (path: string) => ipcRenderer.invoke("lcu-request", path),
+  close: () => ipcRenderer.send("process:close"),
+
+  onCredentials: (callback: (payload: unknown) => void) =>
+    onChannel("credentials", callback),
+  onEndOfGame: (callback: () => void) =>
+    onChannel("end-of-game", callback),
+  onRefetch: (callback: () => void) => onChannel("refetch", callback),
+  onCustomPathTestResult: (callback: (payload: unknown) => void) =>
+    onChannel("custom-path-test-result", callback),
+  onExportResult: (callback: (payload: unknown) => void) =>
+    onChannel("export-result", callback),
 })
 
-// --------- Preload scripts loading ---------
 function domReady(
   condition: DocumentReadyState[] = ["complete", "interactive"]
 ) {
@@ -53,12 +71,6 @@ const safeDOM = {
   },
 }
 
-/**
- * https://tobiasahlin.com/spinkit
- * https://connoratherton.com/loaders
- * https://projects.lukehaas.me/css-loaders
- * https://matejkustec.github.io/SpinThatShit
- */
 function useLoading() {
   const className = `loaders-css__square-spin`
   const styleContent = `
@@ -107,8 +119,6 @@ function useLoading() {
     },
   }
 }
-
-// ----------------------------------------------------------------------
 
 const { appendLoading, removeLoading } = useLoading()
 domReady().then(appendLoading)

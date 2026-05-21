@@ -2,7 +2,7 @@ export interface LCUCredentials {
   address: string
   port: number
   username: string
-  password: string
+  password?: string
   protocol: string
 }
 

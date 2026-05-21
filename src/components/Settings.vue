@@ -2,6 +2,7 @@
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome"
 import { faClose } from "@fortawesome/free-solid-svg-icons"
 import { faGithub } from "@fortawesome/free-brands-svg-icons"
+import type { BuildSource } from "../helpers/buildLinks"
 
 const emit = defineEmits(['test-league-path', 'refresh-data', 'export-data'])
 
@@ -13,7 +14,7 @@ const refreshData = () => {
   emit('refresh-data')
 }
 
-const exportData = (format: 'txt' | 'json' | 'csv' | 'excel') => {
+const exportData = (format: 'txt' | 'json' | 'csv') => {
   emit('export-data', format)
 }
 
@@ -36,7 +37,7 @@ const viewMode = defineModel<'grid' | 'small-grid' | 'list'>("viewMode", {
 const customLeaguePath = defineModel<string>("customLeaguePath", {
   required: true,
 })
-const favoriteBuildSource = defineModel<'opgg' | 'ugg' | 'metasrc' | 'lolalytics' | 'mobalytics'>("favoriteBuildSource", {
+const favoriteBuildSource = defineModel<BuildSource>("favoriteBuildSource", {
   required: true,
 })
 </script>
@@ -188,9 +189,6 @@ const favoriteBuildSource = defineModel<'opgg' | 'ugg' | 'metasrc' | 'lolalytics
           </button>
           <button class="league-button view-mode" @click="exportData('csv')">
             Export CSV
-          </button>
-          <button class="league-button view-mode" @click="exportData('excel')">
-            Export Excel
           </button>
         </div>
       </div>

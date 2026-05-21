@@ -1,3 +1,5 @@
+import type { BuildSource } from "../helpers/buildLinks"
+
 export interface StoredSettings {
   isColoredWhenDone: boolean
   showChampionNames: boolean
@@ -5,7 +7,7 @@ export interface StoredSettings {
   hideMissingChampions: boolean
   viewMode: 'grid' | 'small-grid' | 'list'
   customLeaguePath: string
-  favoriteBuildSource: 'opgg' | 'ugg' | 'metasrc' | 'lolalytics' | 'mobalytics'
+  favoriteBuildSource: BuildSource
 }
 
 export interface ExportData {
