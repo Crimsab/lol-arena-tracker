@@ -11,13 +11,19 @@ export function challengeFromCompletedIds(
   raw: RawChallenge,
   allChamps: Champion[]
 ): Challenge {
+  const completedIds = new Set(raw.completedIds)
+  const champions = allChamps.map((champion) => {
+    const completionIds = champion.completionIds ?? [champion.id]
+    return {
+      ...champion,
+      done: completionIds.some((id) => completedIds.has(id)),
+    }
+  })
+
   return {
     name: raw.name,
     description: raw.description,
-    champions: allChamps.map((c) => ({
-      ...c,
-      done: raw.completedIds.includes(c.id),
-    })),
-    totalDone: raw.completedIds.length,
+    champions,
+    totalDone: champions.filter((champion) => champion.done).length,
   }
 }

@@ -34,4 +34,20 @@ describe("normalizeChampionList", () => {
       "Nunu & Willump",
     ])
   })
+
+  it("merges ruby-prefixed LCU variants into the canonical champion", () => {
+    const result = normalizeChampionList([
+      champion(99, "Lux", "Lux"),
+      champion(90099, "Lux", "ruby_Lux"),
+      champion(90, "Malzahar", "Malzahar"),
+      champion(90090, "Malzahar", "ruby_Malzahar"),
+    ])
+
+    expect(result.map((champion) => champion.alias)).toEqual([
+      "Lux",
+      "Malzahar",
+    ])
+    expect(result[0].completionIds).toEqual([99, 90099])
+    expect(result[1].completionIds).toEqual([90, 90090])
+  })
 })

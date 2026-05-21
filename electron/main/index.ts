@@ -37,6 +37,7 @@ const storeKeys = new Set(["settings", "custom-league-path"])
 const exportFormats = new Set(["txt", "json", "csv"])
 const lcuPathPattern = /^\/lol-[a-z0-9-]+\/v\d+\//
 const { autoUpdater } = electronUpdater
+const lcuReconnectTimers = new Set<NodeJS.Timeout>()
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -114,6 +115,8 @@ function openAllowedExternalUrl(url: string) {
 }
 
 function sendCredentials(win: BrowserWindow, credentials: LCUCredentials | null) {
+  if (isQuitting) return
+
   console.log(`Main: sendCredentials called with credentials:`, credentials ? {
     address: credentials.address,
     port: credentials.port,
@@ -134,8 +137,7 @@ function sendCredentials(win: BrowserWindow, credentials: LCUCredentials | null)
     stopConnectionMonitoring()
   } else {
     isConnected = false
-    // Restart monitoring when disconnected
-    setTimeout(() => startConnectionMonitoring(win), 1000)
+    scheduleLCURetry(() => startConnectionMonitoring(win), 1000)
   }
 
   win.webContents.send("credentials", credentials ? {
@@ -231,7 +233,7 @@ async function tryManualLCUConnection(win: BrowserWindow): Promise<boolean> {
       console.log(`Successfully connected using manual method with lockfile: ${lockfilePath}`)
       sendCredentials(win, credentials)
       // LCU refuses websocket connections too early, so delay it
-      setTimeout(() => connectWebsocket(win, credentials), 10000)
+      scheduleLCURetry(() => connectWebsocket(win, credentials), 10000)
       return true
     }
   }
@@ -260,6 +262,8 @@ async function connectWebsocket(
   win: BrowserWindow,
   credentials: LCUCredentials
 ) {
+  closeActiveWebsocket()
+
   const { address, port, username, password } = credentials
   const url = `wss://${address}:${port}/`
 
@@ -271,8 +275,11 @@ async function connectWebsocket(
     },
     rejectUnauthorized: false,
   })
+  activeWebSocket = ws
 
   ws.on("message", (e) => {
+    if (isQuitting) return
+
     let event: LCUEventMessage
     try {
       event = parseEventMessage(e.toString())
@@ -316,12 +323,19 @@ async function connectWebsocket(
 
   ws.on("close", () => {
     console.log("WebSocket connection closed")
-    sendCredentials(win, null)
+    if (activeWebSocket === ws) {
+      activeWebSocket = null
+    }
+    if (!isQuitting) {
+      sendCredentials(win, null)
+    }
   })
 
   ws.on("error", (error) => {
     console.error("WebSocket error:", error)
-    sendCredentials(win, null)
+    if (!isQuitting) {
+      sendCredentials(win, null)
+    }
   })
 }
 
@@ -349,6 +363,10 @@ const store = new Store({
 let isConnected = false
 let connectionCheckInterval: NodeJS.Timeout | null = null
 let lastCredentials: LCUCredentials | null = null
+let activeWebSocket: WebSocket | null = null
+let autoUpdateInterval: NodeJS.Timeout | null = null
+let autoUpdateInitialTimer: NodeJS.Timeout | null = null
+let isQuitting = false
 
 function lockfilePathFromLeaguePath(leaguePath: string) {
   const trimmed = leaguePath.trim()
@@ -455,6 +473,10 @@ async function makeLCURequest(path: string) {
 }
 
 function startConnectionMonitoring(win: BrowserWindow) {
+  if (isQuitting) {
+    return
+  }
+
   if (connectionCheckInterval) {
     return
   }
@@ -477,6 +499,57 @@ function stopConnectionMonitoring() {
     clearInterval(connectionCheckInterval)
     connectionCheckInterval = null
   }
+}
+
+function scheduleLCURetry(callback: () => void, delayMs: number) {
+  if (isQuitting) return
+
+  const timer = setTimeout(() => {
+    lcuReconnectTimers.delete(timer)
+    if (!isQuitting) {
+      callback()
+    }
+  }, delayMs)
+  lcuReconnectTimers.add(timer)
+}
+
+function clearLCURetryTimers() {
+  for (const timer of lcuReconnectTimers) {
+    clearTimeout(timer)
+  }
+  lcuReconnectTimers.clear()
+}
+
+function closeActiveWebsocket() {
+  if (!activeWebSocket) return
+
+  const ws = activeWebSocket
+  activeWebSocket = null
+  ws.removeAllListeners()
+  if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+    ws.close()
+  }
+}
+
+function cleanupRuntime() {
+  isQuitting = true
+  stopConnectionMonitoring()
+  clearLCURetryTimers()
+  closeActiveWebsocket()
+  lastCredentials = null
+  isConnected = false
+
+  if (autoUpdateInitialTimer) {
+    clearTimeout(autoUpdateInitialTimer)
+    autoUpdateInitialTimer = null
+  }
+
+  if (autoUpdateInterval) {
+    clearInterval(autoUpdateInterval)
+    autoUpdateInterval = null
+  }
+
+  autoUpdater.removeAllListeners()
 }
 
 function setupAutoUpdater(win: BrowserWindow) {
@@ -519,10 +592,13 @@ function setupAutoUpdater(win: BrowserWindow) {
     console.warn("Auto-update check failed:", error)
   })
 
-  autoUpdater.checkForUpdates().catch((error) => {
-    console.warn("Auto-update check failed:", error)
-  })
-  setInterval(() => {
+  autoUpdateInitialTimer = setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((error) => {
+      console.warn("Auto-update check failed:", error)
+    })
+  }, 30_000)
+
+  autoUpdateInterval = setInterval(() => {
     autoUpdater.checkForUpdates().catch((error) => {
       console.warn("Auto-update check failed:", error)
     })
@@ -630,11 +706,15 @@ async function main() {
     return store.get(arg)
   })
 
+  app.on("before-quit", cleanupRuntime)
+
   app.on("window-all-closed", () => {
+    cleanupRuntime()
     app.quit()
   })
 
   ipcMain.on("process:close", () => {
+    cleanupRuntime()
     app.quit()
   })
 }
