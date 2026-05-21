@@ -35,12 +35,12 @@ describe("normalizeChampionList", () => {
     ])
   })
 
-  it("merges ruby-prefixed LCU variants into the canonical champion", () => {
+  it("merges prefixed LCU variants when the suffix is a canonical champion alias", () => {
     const result = normalizeChampionList([
       champion(99, "Lux", "Lux"),
       champion(90099, "Lux", "ruby_Lux"),
       champion(90, "Malzahar", "Malzahar"),
-      champion(90090, "Malzahar", "ruby_Malzahar"),
+      champion(90090, "Malzahar", "arena_event_Malzahar"),
     ])
 
     expect(result.map((champion) => champion.alias)).toEqual([
@@ -49,5 +49,33 @@ describe("normalizeChampionList", () => {
     ])
     expect(result[0].completionIds).toEqual([99, 90099])
     expect(result[1].completionIds).toEqual([90, 90090])
+  })
+
+  it("matches variant suffixes against champion display names too", () => {
+    const result = normalizeChampionList([
+      champion(62, "Wukong", "MonkeyKing"),
+      champion(9062, "Wukong", "ruby_Wukong"),
+      champion(36, "Dr. Mundo", "DrMundo"),
+      champion(9036, "Dr. Mundo", "ruby_DrMundo"),
+    ])
+
+    expect(result.map((champion) => champion.alias)).toEqual([
+      "DrMundo",
+      "MonkeyKing",
+    ])
+    expect(result[0].completionIds).toEqual([36, 9036])
+    expect(result[1].completionIds).toEqual([62, 9062])
+  })
+
+  it("does not merge underscored aliases unless the suffix is a real champion", () => {
+    const result = normalizeChampionList([
+      champion(1, "Lux", "Lux"),
+      champion(2, "Arena Special", "ruby_NotAChampion"),
+    ])
+
+    expect(result.map((champion) => champion.alias).sort()).toEqual([
+      "Lux",
+      "ruby_NotAChampion",
+    ])
   })
 })
