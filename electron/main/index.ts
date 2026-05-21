@@ -7,7 +7,7 @@ import http from "node:http"
 import https from "node:https"
 import { WebSocket } from "ws"
 import Store from "electron-store"
-import { autoUpdater } from "electron-updater"
+import electronUpdater from "electron-updater"
 import {
   ChampSelectSessionEvent,
   LCUEventMessage,
@@ -36,6 +36,7 @@ const allowedExternalHosts = new Set([
 const storeKeys = new Set(["settings", "custom-league-path"])
 const exportFormats = new Set(["txt", "json", "csv"])
 const lcuPathPattern = /^\/lol-[a-z0-9-]+\/v\d+\//
+const { autoUpdater } = electronUpdater
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
