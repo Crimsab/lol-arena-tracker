@@ -65,7 +65,6 @@
   - **TXT**: Human-readable text format
   - **JSON**: Structured data format
   - **CSV**: Spreadsheet-compatible format
-  - **Excel**: Full Excel workbook with summary and champion sheets
 - **Data Refresh**: Manual refresh button to update progress
 - **Persistent Settings**: All preferences are saved automatically, even after quitting the application
 

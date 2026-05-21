@@ -1,5 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.crimsab.lol-arena-tracker",
   "productName": "Arena Tracker",
   "directories": {
     "output": "release/${version}"
@@ -24,7 +25,13 @@
       }
     ],
     "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
-    "publish": null
+    "publish": {
+      "provider": "github",
+      "owner": "Crimsab",
+      "repo": "lol-arena-tracker",
+      "private": false,
+      "releaseType": "release"
+    }
   },
   "portable": {
     "artifactName": "${productName}-Windows-${version}-Portable.${ext}",
