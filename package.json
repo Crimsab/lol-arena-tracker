@@ -1,6 +1,6 @@
 {
   "name": "lol-arena-tracker",
-  "version": "1.0.1",
+  "version": "1.0.8",
   "main": "dist-electron/main/index.js",
   "description": "Arena Tracker - Track your Arena God challenge progress in League of Legends",
   "author": "Crimsab",
@@ -22,6 +22,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "vue-tsc --noEmit && vite build && electron-builder",
+    "build:release": "vue-tsc --noEmit && vite build && electron-builder --publish never",
     "build:portable": "vue-tsc --noEmit && vite build && electron-builder --win portable",
     "build:installer": "vue-tsc --noEmit && vite build && electron-builder --win nsis",
     "preview": "vite preview"
