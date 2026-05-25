@@ -22,6 +22,13 @@ interface LCUCredentials {
   protocol: string
 }
 
+interface GitHubRelease {
+  tag_name?: string
+  html_url?: string
+  draft?: boolean
+  prerelease?: boolean
+}
+
 const allowedExternalHosts = new Set([
   "op.gg",
   "www.op.gg",
@@ -38,6 +45,8 @@ const exportFormats = new Set(["txt", "json", "csv"])
 const lcuPathPattern = /^\/lol-[a-z0-9-]+\/v\d+\//
 const { autoUpdater } = electronUpdater
 const lcuReconnectTimers = new Set<NodeJS.Timeout>()
+const latestReleaseApiUrl =
+  "https://api.github.com/repos/Crimsab/lol-arena-tracker/releases/latest"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -552,8 +561,115 @@ function cleanupRuntime() {
   autoUpdater.removeAllListeners()
 }
 
+function isPortableBuild() {
+  return process.platform === "win32" && Boolean(process.env.PORTABLE_EXECUTABLE_DIR)
+}
+
+function versionParts(version: string) {
+  return version
+    .replace(/^v/i, "")
+    .split(".")
+    .map((part) => Number.parseInt(part, 10) || 0)
+}
+
+function compareVersions(left: string, right: string) {
+  const leftParts = versionParts(left)
+  const rightParts = versionParts(right)
+  const maxLength = Math.max(leftParts.length, rightParts.length)
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const leftValue = leftParts[index] ?? 0
+    const rightValue = rightParts[index] ?? 0
+
+    if (leftValue > rightValue) return 1
+    if (leftValue < rightValue) return -1
+  }
+
+  return 0
+}
+
+function fetchLatestRelease() {
+  return new Promise<GitHubRelease>((resolve, reject) => {
+    const request = https.get(
+      latestReleaseApiUrl,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "User-Agent": "Arena-Tracker-Updater",
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = []
+
+        response.on("data", (chunk: Buffer) => chunks.push(chunk))
+        response.on("end", () => {
+          const body = Buffer.concat(chunks).toString("utf8")
+
+          if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+            reject(new Error(`GitHub release check failed with ${response.statusCode}: ${body}`))
+            return
+          }
+
+          try {
+            resolve(JSON.parse(body) as GitHubRelease)
+          } catch (error) {
+            reject(error)
+          }
+        })
+      }
+    )
+
+    request.on("error", reject)
+    request.setTimeout(15_000, () => {
+      request.destroy(new Error("GitHub release check timed out"))
+    })
+  })
+}
+
+async function checkPortableUpdate(win: BrowserWindow) {
+  const release = await fetchLatestRelease()
+
+  if (
+    !release.tag_name ||
+    !release.html_url ||
+    release.draft ||
+    release.prerelease ||
+    compareVersions(release.tag_name, app.getVersion()) <= 0
+  ) {
+    return
+  }
+
+  const { response } = await dialog.showMessageBox(win, {
+    type: "info",
+    buttons: ["Open Release", "Later"],
+    defaultId: 0,
+    cancelId: 1,
+    message: `Arena Tracker ${release.tag_name.replace(/^v/i, "")} is available`,
+    detail:
+      "Portable builds cannot install updates in-place. Open the GitHub release and download the new Portable.exe or Setup.exe.",
+  })
+
+  if (response === 0) {
+    shell.openExternal(release.html_url)
+  }
+}
+
+function scheduleUpdateChecks(checkForUpdates: () => void) {
+  autoUpdateInitialTimer = setTimeout(checkForUpdates, 30_000)
+  autoUpdateInterval = setInterval(checkForUpdates, 4 * 60 * 60 * 1000)
+}
+
 function setupAutoUpdater(win: BrowserWindow) {
   if (!app.isPackaged) return
+
+  if (isPortableBuild()) {
+    scheduleUpdateChecks(() => {
+      checkPortableUpdate(win).catch((error) => {
+        console.warn("Portable update check failed:", error)
+      })
+    })
+    return
+  }
 
   autoUpdater.autoDownload = false
   autoUpdater.allowPrerelease = false
@@ -592,17 +708,11 @@ function setupAutoUpdater(win: BrowserWindow) {
     console.warn("Auto-update check failed:", error)
   })
 
-  autoUpdateInitialTimer = setTimeout(() => {
+  scheduleUpdateChecks(() => {
     autoUpdater.checkForUpdates().catch((error) => {
       console.warn("Auto-update check failed:", error)
     })
-  }, 30_000)
-
-  autoUpdateInterval = setInterval(() => {
-    autoUpdater.checkForUpdates().catch((error) => {
-      console.warn("Auto-update check failed:", error)
-    })
-  }, 4 * 60 * 60 * 1000)
+  })
 }
 
 async function main() {

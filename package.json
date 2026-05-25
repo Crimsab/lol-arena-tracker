@@ -1,6 +1,6 @@
 {
   "name": "lol-arena-tracker",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "main": "dist-electron/main/index.js",
   "description": "Arena Tracker - Track your Arena God challenge progress in League of Legends",
   "author": "Crimsab",
