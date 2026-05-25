@@ -24,7 +24,7 @@
         ]
       }
     ],
-    "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
+    "artifactName": "Arena-Tracker-Windows-${version}-Setup.${ext}",
     "publish": {
       "provider": "github",
       "owner": "Crimsab",
@@ -34,7 +34,7 @@
     }
   },
   "portable": {
-    "artifactName": "${productName}-Windows-${version}-Portable.${ext}",
+    "artifactName": "Arena-Tracker-Windows-${version}-Portable.${ext}",
     "requestExecutionLevel": "user"
   },
   "nsis": {

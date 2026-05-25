@@ -38,8 +38,8 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          release/*/Arena Tracker-Windows-*-Setup.exe
-          release/*/Arena Tracker-Windows-*-Portable.exe
+          release/*/Arena-Tracker-Windows-*-Setup.exe
+          release/*/Arena-Tracker-Windows-*-Portable.exe
           release/*/latest.yml
           release/*/*.blockmap
         generate_release_notes: true
@@ -49,8 +49,8 @@ jobs:
           ## Arena Tracker ${{ github.ref_name }}
           
           ### Downloads
-          - **Installer**: Arena Tracker-Windows-*-Setup.exe (Recommended for most users)
-          - **Portable**: Arena Tracker-Windows-*-Portable.exe (No installation required)
+          - **Installer**: Arena-Tracker-Windows-*-Setup.exe (Recommended for most users)
+          - **Portable**: Arena-Tracker-Windows-*-Portable.exe (No installation required)
           
           ### Installation
           1. **Installer**: Download and run the Setup.exe file
